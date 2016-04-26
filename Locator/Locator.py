@@ -184,12 +184,12 @@ class LocatorWidget(ScriptedLoadableModuleWidget):
       if v:
         self.logic.removeLocator(k)
 
-
-def onReload(self, moduleName="Locator"):
-  # Generic reload method for any scripted module.
-  # ModuleWizard will subsitute correct default moduleName.
   
-  globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
+  def onReload(self, moduleName="Locator"):
+    # Generic reload method for any scripted module.
+    # ModuleWizard will subsitute correct default moduleName.
+    
+    globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
 
 
 
@@ -281,14 +281,14 @@ class LocatorLogic(ScriptedLoadableModuleLogic):
         needleModel.SetAndObserveTransformNodeID(tnode.GetID())
         tnode.SetAttribute('Locator', needleModelID)
 
-def unlinkLocator(self, tnode):
-  if tnode:
-    print 'unlinkLocator(%s)' % tnode.GetID()
+  def unlinkLocator(self, tnode):
+    if tnode:
+      print 'unlinkLocator(%s)' % tnode.GetID()
       tnode.RemoveAttribute('Locator')
-
-def removeLocator(self, mnodeID):
-  if mnodeID:
-    print 'removeLocator(%s)' % mnodeID
+  
+  def removeLocator(self, mnodeID):
+    if mnodeID:
+      print 'removeLocator(%s)' % mnodeID
       mnode = self.scene.GetNodeByID(mnodeID)
       if mnode:
         print 'removing from the scene'
@@ -298,12 +298,12 @@ def removeLocator(self, mnodeID):
           if dnode:
             self.scene.RemoveNode(mnode)
             self.scene.RemoveNode(dnode)
-
-
-
-def createNeedleModelNode(self, name,index):
   
-  locatorModel = self.scene.CreateNodeByClass('vtkMRMLModelNode')
+  
+  
+  def createNeedleModelNode(self, name,index):
+    
+    locatorModel = self.scene.CreateNodeByClass('vtkMRMLModelNode')
     
     # Cylinder represents the locator stick
     cylinder = vtk.vtkCylinderSource()
@@ -322,7 +322,7 @@ def createNeedleModelNode(self, name,index):
       tfilter.SetInput(cylinder.GetOutput())
     else:
       tfilter.SetInputConnection(cylinder.GetOutputPort())
-  tfilter.SetTransform(trans)
+    tfilter.SetTransform(trans)
     tfilter.Update()
     
     # Sphere represents the locator tip
@@ -355,8 +355,8 @@ def createNeedleModelNode(self, name,index):
       locatorDisp.SetScene(self.scene)
       locatorModel.SetAndObserveDisplayNodeID(locatorDisp.GetID());
 
-color = [0, 0, 0]
-  color[0] = 0.5
+    color = [0, 0, 0]
+    color[0] = 0.5
     color[1] = 0.5
     color[2] = 1.0
     locatorDisp.SetColor(color)
@@ -367,23 +367,22 @@ color = [0, 0, 0]
       colorName = "background:rgb({},{},{})".format(255*color[0], 255*color[1], 255*color[2])
       print colorName
       self.widget.colorSelectors[index].setStyleSheet(colorName)
-  #qss = qt.QString("background-color: %1").arg(col.name());
+      #qss = qt.QString("background-color: %1").arg(col.name());
 
+    return locatorModel.GetID()
 
-  return locatorModel.GetID()
-
-def modifyColorScheme(self,sender):
-  index = 0
+  def modifyColorScheme(self,sender):
+    index = 0
     for index, colorSelector in enumerate(self.widget.colorSelectors):
       if sender == colorSelector:
         break
-  self.SelectedRowNum = index
+    self.SelectedRowNum = index
     self.widget.colorDialog.open()
     pass
 
-def colorSchemeChanged(self):
-  if not self.SelectedRowNum==None:
-    a = 0
+  def colorSchemeChanged(self):
+    if not self.SelectedRowNum==None:
+      a = 0
       #fom widget get the current selected combox, from the combox get the transformation node in this combox.
       colortemp = self.widget.colorDialog.selectedColor()
       red = colortemp.red()
@@ -398,10 +397,10 @@ def colorSchemeChanged(self):
       locatorDisp.SetColor(selectedColor)
       if tnode and self.colorMap.get(tnode.GetName()):
         self.colorMap[tnode.GetName()] = selectedColor  # conversion between QT color and slicer color needed
-  pass
+    pass
 
-def reselectLocator(self, sender):
-  index = 0
+  def reselectLocator(self, sender):
+    index = 0
     for index, transform in enumerate(self.widget.transformSelector):
       if sender == transform.currentNodeID:
         tnode = transform.currentNode()
@@ -410,19 +409,19 @@ def reselectLocator(self, sender):
           selectedColor = self.colorMap[tnode.GetName()]
           colorName = "background:rgb({},{},{})".format(selectedColor[0]*255, selectedColor[1]*255, selectedColor[2]*255)
           self.widget.colorSelectors[index].setStyleSheet(colorName)
-  pass
+    pass
 
 
-def onNodeRemovedEvent(self, caller, event, obj=None):
-  delkey = ''
+  def onNodeRemovedEvent(self, caller, event, obj=None):
+    delkey = ''
     if obj == None:
       for k in self.eventTag:
         node = self.scene.GetNodeByID(k)
         if node == None:
           delkey = k
           break
-  
-  if delkey != '':
-    del self.eventTag[delkey]
+    
+    if delkey != '':
+      del self.eventTag[delkey]
 
 
