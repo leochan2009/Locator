@@ -3,7 +3,11 @@ import unittest
 import time
 from __main__ import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
-
+import vtkSlicerOpenIGTLinkIFModuleMRML
+from vtkSlicerOpenIGTLinkIFModuleMRML import vtkMRMLIGTLQueryNode
+from slicer import vtkMRMLLinearTransformNode
+from slicer import util
+from time import sleep
 
 #------------------------------------------------------------
 #
@@ -11,22 +15,22 @@ from slicer.ScriptedLoadableModule import *
 #
 class Locator(ScriptedLoadableModule):
   """Uses ScriptedLoadableModule base class, available at:
-  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-  """
-
+    https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
+    """
+  
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
     self.parent.title = "Locator" # TODO make this more human readable by adding spaces
     self.parent.categories = ["IGT"]
     self.parent.dependencies = []
-    self.parent.contributors = ["Junichi Tokuda, Wei Wang, Ehud Schmidt (BWH)"] # replace with "Firstname Lastname (Organization)"
+    self.parent.contributors = ["Junichi Tokuda, Wei Wang, Ehud Schmidt, Longquan Chen (BWH)"] # replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
-    A communication interface for Koh Young's 3D sensors.
-    """
+      A communication interface for Koh Young's 3D sensors.
+      """
     self.parent.acknowledgementText = """
-    This work is supported by NIH National Center for Image Guided Therapy (P41EB015898).
-    """ 
-    # replace with organization, grant and thanks.
+      This work is supported by NIH National Center for Image Guided Therapy (P41EB015898).
+      """
+# replace with organization, grant and thanks.
 
 
 #------------------------------------------------------------
@@ -35,17 +39,17 @@ class Locator(ScriptedLoadableModule):
 #
 class LocatorWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
-  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-  """
-
+    https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
+    """
+  
   def setup(self):
     ScriptedLoadableModuleWidget.setup(self)
+    
     # Instantiate and connect widgets ...
-
+    
     self.logic = LocatorLogic(None)
     self.logic.setWidget(self)
     self.nLocators = 5
-
     #--------------------------------------------------
     # For debugging
     #
@@ -54,7 +58,7 @@ class LocatorWidget(ScriptedLoadableModuleWidget):
     reloadCollapsibleButton.text = "Reload && Test"
     self.layout.addWidget(reloadCollapsibleButton)
     reloadFormLayout = qt.QFormLayout(reloadCollapsibleButton)
-
+    
     reloadCollapsibleButton.collapsed = True
     
     # reload button
@@ -67,25 +71,51 @@ class LocatorWidget(ScriptedLoadableModuleWidget):
     self.reloadButton.connect('clicked()', self.onReload)
     #
     #--------------------------------------------------
-
-
+    
+    
     #--------------------------------------------------
     # GUI components
     
+    self.colorDialog = qt.QColorDialog()
+    self.colorDialog.connect("colorSelected(const QColor &)", self.logic.colorSchemeChanged)
+    self.layout.addWidget(self.colorDialog)
+    #self.colorDialog.done()
     #
     # Registration Matrix Selection Area
     #
     selectionCollapsibleButton = ctk.ctkCollapsibleButton()
     selectionCollapsibleButton.text = "Locator ON/OFF"
     self.layout.addWidget(selectionCollapsibleButton)
-  
+    
     selectionFormLayout = qt.QFormLayout(selectionCollapsibleButton)
     
+    self.connectorPort = qt.QSpinBox()
+    self.connectorPort.objectName = 'PortSpinBox'
+    self.connectorPort.setMaximum(64000)
+    self.connectorPort.setValue(18944)
+    self.connectorPort.setToolTip("Port number of the server")
+    selectionFormLayout.addRow("Port: ", self.connectorPort)
+    
+    #
+    # check box to trigger transform conversion
+    #
+    
+    self.activeConnectionBox = qt.QCheckBox()
+    self.activeConnectionBox.checked = 0
+    self.activeConnectionBox.setToolTip("Activate OpenIGTLink connection")
+    selectionFormLayout.addRow("Active: ", self.activeConnectionBox)
+    self.activeConnectionBox.connect('toggled(bool)', self.logic.onTrackingConnectionActive)
+    self.activeTrackingBox = qt.QCheckBox()
+    self.activeTrackingBox.checked = 0
+    self.activeTrackingBox.connect('toggled(bool)', self.logic.onStartAndStopTracking)
+    selectionFormLayout.addRow("Start/Stop Tracking: ", self.activeTrackingBox)
+    
     self.transformSelector = []
+    self.colorSelectors = []
     self.locatorActiveCheckBox = []
-
+    
     for i in range(self.nLocators):
-
+      
       self.transformSelector.append(slicer.qMRMLNodeComboBox())
       selector = self.transformSelector[i]
       selector.nodeTypes = ( ("vtkMRMLLinearTransformNode"), "" )
@@ -97,41 +127,46 @@ class LocatorWidget(ScriptedLoadableModuleWidget):
       selector.showChildNodeTypes = False
       selector.setMRMLScene( slicer.mrmlScene )
       selector.setToolTip( "Establish a connection with the server" )
-
+      
+      self.colorSelectors.append(qt.QPushButton("", self.parent))
+      colorSelector = self.colorSelectors[i]
+      
       self.locatorActiveCheckBox.append(qt.QCheckBox())
       checkbox = self.locatorActiveCheckBox[i]
       checkbox.checked = 0
       checkbox.text = ' '
       checkbox.setToolTip("Activate locator")
-
+      
       transformLayout = qt.QHBoxLayout()
       transformLayout.addWidget(selector)
+      transformLayout.addWidget(colorSelector)
       transformLayout.addWidget(checkbox)
       selectionFormLayout.addRow("Locator #%d:" % i, transformLayout)
-
+      
+      colorSelector.connect('pressed()', lambda sender=colorSelector: self.logic.modifyColorScheme(sender))
+      selector.connect('currentNodeIDChanged(const QString & )',lambda sender = selector: self.logic.reselectLocator(sender))
       checkbox.connect('toggled(bool)', self.onLocatorActive)
-
     #--------------------------------------------------
     # connections
     #
-
+    
     # Add vertical spacer
     self.layout.addStretch(1)
-
-
+  
+  
   def cleanup(self):
     pass
-
-
+  
+  
   def onLocatorActive(self):
-
+    
     removeList = {}
     for i in range(self.nLocators):
       tnode = self.transformSelector[i].currentNode()
       if self.locatorActiveCheckBox[i].checked == True:
         if tnode:
           self.transformSelector[i].setEnabled(False)
-          self.logic.addLocator(tnode)
+          self.logic.addLocator(tnode,i)
           mnodeID = tnode.GetAttribute('Locator')
           removeList[mnodeID] = False
         else:
@@ -144,35 +179,17 @@ class LocatorWidget(ScriptedLoadableModuleWidget):
             removeList[mnodeID] = True
             self.logic.unlinkLocator(tnode)
         self.transformSelector[i].setEnabled(True)
-
+  
     for k, v in removeList.iteritems():
       if v:
-        pass
-        #self.logic.removeLocator(k)
-      
-
-  def onReload(self, moduleName="Locator"):
-    # Generic reload method for any scripted module.
-    # ModuleWizard will subsitute correct default moduleName.
-
-    globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
+        self.logic.removeLocator(k)
 
 
-  def updateGUI(self):
-    # Enable/disable GUI components based on the state machine
-
-    ##if self.logic.connected():
-    #if self.logic.active():
-    #  self.activeCheckBox.setChecked(True)
-    #else:
-    #  self.activeCheckBox.setChecked(False)
-    #
-    ## Enable/disable 'Active' checkbox 
-    #if self.connectorSelector.currentNode():
-    #  self.activeCheckBox.setEnabled(True)
-    #else:
-    #  self.activeCheckBox.setEnabled(False)
-    pass
+def onReload(self, moduleName="Locator"):
+  # Generic reload method for any scripted module.
+  # ModuleWizard will subsitute correct default moduleName.
+  
+  globals()[moduleName] = slicer.util.reloadScriptedModule(moduleName)
 
 
 
@@ -181,41 +198,97 @@ class LocatorWidget(ScriptedLoadableModuleWidget):
 # LocatorLogic
 #
 class LocatorLogic(ScriptedLoadableModuleLogic):
-
+  
   def __init__(self, parent):
     ScriptedLoadableModuleLogic.__init__(self, parent)
-
+    
     self.scene = slicer.mrmlScene
     self.scene.AddObserver(slicer.vtkMRMLScene.NodeRemovedEvent, self.onNodeRemovedEvent)
+    self.colorList = ([0.5, 0, 0], [0, 0.5, 0], [0, 0, 0.5],[0.5, 0, 0.5],[0, 0.5, 0.5])
+    self.colorMap = dict()
+    self.SelectedRowNum = None
+    
+    @vtk.calldata_type(vtk.VTK_OBJECT)
+    def updateLocator(caller, event, callerdata):
+      node = callerdata
+      if isinstance(node, slicer.vtkMRMLLinearTransformNode) :
+        firstSelector = self.widget.transformSelector[0]
+        tCollection = self.scene.GetNodesByClass("vtkMRMLLinearTransformNode")
+        channelNum = tCollection.GetReferenceCount()
+        setNum = self.widget.nLocators
+        if channelNum < setNum:
+          setNum = channelNum
+        for i in range(setNum+1):
+          selector = self.widget.transformSelector[i]
+          selector.setCurrentNodeIndex(i)
+          if self.scene.GetNodeByID(selector.currentNodeID):
+            self.colorMap[self.scene.GetNodeByID(selector.currentNodeID).GetName()] = self.colorList[i]
+      pass
+    self.scene.AddObserver(slicer.vtkMRMLScene.NodeAddedEvent, updateLocator)
     self.widget = None
-
+    self.cnode = slicer.vtkMRMLIGTLConnectorNode()
+    self.metaDataQueryNode = vtkSlicerOpenIGTLinkIFModuleMRML.vtkMRMLIGTLQueryNode()
+    self.scene.AddNode(self.cnode)
+    self.scene.AddNode(self.metaDataQueryNode)
+    
     self.eventTag = {}
-
+    
     # IGTL Conenctor Node ID
     self.connectorNodeID = ''
-
-    self.count = 0
     
+    self.count = 0
+  
   def setWidget(self, widget):
     self.widget = widget
+  
+  def onTrackingConnectionActive(self):
+    if self.widget.activeConnectionBox.checked == True:
+      self.cnode.SetTypeClient("localhost", self.widget.connectorPort.value)
+      success = False
+      attampt = 0
+      while(attampt<10 and (not success) ):
+        success = self.cnode.Start()
+        time.sleep(0.3)
+        attampt = attampt + 1
+      if(not success):
+        self.widget.activeConnectionBox.checked = False
+    else:
+      if self.cnode:
+        self.cnode.Stop()
+    pass
+
+  def onStartAndStopTracking(self):
+    if self.widget.activeTrackingBox.checked == True:
+      self.metaDataQueryNode.SetIGTLName("TDATA")
+      self.metaDataQueryNode.SetIGTLDeviceName("")
+      self.metaDataQueryNode.SetQueryType(self.metaDataQueryNode.TYPE_START)
+      self.metaDataQueryNode.SetQueryStatus(self.metaDataQueryNode.STATUS_PREPARED)
+      self.cnode.PushQuery(self.metaDataQueryNode)
+    else:
+      self.metaDataQueryNode.SetIGTLName("TDATA")
+      self.metaDataQueryNode.SetIGTLDeviceName("")
+      self.metaDataQueryNode.SetQueryType(self.metaDataQueryNode.TYPE_STOP)
+      self.metaDataQueryNode.SetQueryStatus(self.metaDataQueryNode.STATUS_PREPARED)
+      self.cnode.PushQuery(self.metaDataQueryNode)
+    pass
 
 
-  def addLocator(self, tnode):
+  def addLocator(self, tnode, index):
     if tnode:
       if tnode.GetAttribute('Locator') == None:
-        needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
+        needleModelID = self.createNeedleModelNode(tnode.GetName(),index)
         needleModel = self.scene.GetNodeByID(needleModelID)
         needleModel.SetAndObserveTransformNodeID(tnode.GetID())
         tnode.SetAttribute('Locator', needleModelID)
 
-  def unlinkLocator(self, tnode):
-    if tnode:
-      print 'unlinkLocator(%s)' % tnode.GetID()
+def unlinkLocator(self, tnode):
+  if tnode:
+    print 'unlinkLocator(%s)' % tnode.GetID()
       tnode.RemoveAttribute('Locator')
 
-  def removeLocator(self, mnodeID):
-    if mnodeID:
-      print 'removeLocator(%s)' % mnodeID
+def removeLocator(self, mnodeID):
+  if mnodeID:
+    print 'removeLocator(%s)' % mnodeID
       mnode = self.scene.GetNodeByID(mnodeID)
       if mnode:
         print 'removing from the scene'
@@ -223,46 +296,14 @@ class LocatorLogic(ScriptedLoadableModuleLogic):
         if dnodeID:
           dnode = self.scene.GetNodeByID(dnodeID)
           if dnode:
+            self.scene.RemoveNode(mnode)
             self.scene.RemoveNode(dnode)
-        self.scene.RemoveNode(mnode)
 
-  def onNewDeviceEvent(self, caller, event, obj=None):
 
-    cnode = self.scene.GetNodeByID(self.connectorNodeID)
-    nInNode = cnode.GetNumberOfIncomingMRMLNodes()
-    print nInNode
-    for i in range (nInNode):
-      node = cnode.GetIncomingMRMLNode(i)
-      if not node.GetID() in self.eventTag:
-        self.eventTag[node.GetID()] = node.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onIncomingNodeModifiedEvent)
-        if node.GetNodeTagName() == 'IGTLTrackingDataSplitter':
-          n = node.GetNumberOfTransformNodes()
-          for id in range (n):
-            tnode = node.GetTransformNode(id)
-            if tnode and tnode.GetAttribute('Locator') == None:
-              print "No Locator"
-              needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
-              needleModel = self.scene.GetNodeByID(needleModelID)
-              needleModel.SetAndObserveTransformNodeID(tnode.GetID())
-              needleModel.InvokeEvent(slicer.vtkMRMLTransformableNode.TransformModifiedEvent)
-              tnode.SetAttribute('Locator', needleModelID)
 
-  def createNeedleModel(self, node):
-    if node and node.GetClassName() == 'vtkMRMLIGTLTrackingDataBundleNode':
-      n = node.GetNumberOfTransformNodes()
-      print n
-      for id in range (n):
-        tnode = node.GetTransformNode(id)
-        if tnode:
-          needleModelID = self.createNeedleModelNode("Needle_%s" % tnode.GetName())
-          needleModel = self.scene.GetNodeByID(needleModelID)
-          needleModel.SetAndObserveTransformNodeID(tnode.GetID())
-          needleModel.InvokeEvent(slicer.vtkMRMLTransformableNode.TransformModifiedEvent)
-
-        
-  def createNeedleModelNode(self, name):
-
-    locatorModel = self.scene.CreateNodeByClass('vtkMRMLModelNode')
+def createNeedleModelNode(self, name,index):
+  
+  locatorModel = self.scene.CreateNodeByClass('vtkMRMLModelNode')
     
     # Cylinder represents the locator stick
     cylinder = vtk.vtkCylinderSource()
@@ -270,7 +311,7 @@ class LocatorLogic(ScriptedLoadableModuleLogic):
     cylinder.SetHeight(100)
     cylinder.SetCenter(0, 0, 0)
     cylinder.Update()
-
+    
     # Rotate cylinder
     tfilter = vtk.vtkTransformPolyDataFilter()
     trans =   vtk.vtkTransform()
@@ -281,17 +322,17 @@ class LocatorLogic(ScriptedLoadableModuleLogic):
       tfilter.SetInput(cylinder.GetOutput())
     else:
       tfilter.SetInputConnection(cylinder.GetOutputPort())
-    tfilter.SetTransform(trans)
+  tfilter.SetTransform(trans)
     tfilter.Update()
-
+    
     # Sphere represents the locator tip
     sphere = vtk.vtkSphereSource()
     sphere.SetRadius(3.0)
     sphere.SetCenter(0, 0, 0)
     sphere.Update()
-
+    
     apd = vtk.vtkAppendPolyData()
-
+    
     if vtk.VTK_MAJOR_VERSION <= 5:
       apd.AddInput(sphere.GetOutput())
       apd.AddInput(tfilter.GetOutput())
@@ -301,10 +342,11 @@ class LocatorLogic(ScriptedLoadableModuleLogic):
     apd.Update()
     
     locatorModel.SetAndObservePolyData(apd.GetOutput());
-
+    
     self.scene.AddNode(locatorModel)
     locatorModel.SetScene(self.scene);
-    locatorModel.SetName(name)
+    needleName = "Needle_%s" % name
+    locatorModel.SetName(needleName)
     
     locatorDisp = locatorModel.GetDisplayNodeID()
     if locatorDisp == None:
@@ -312,26 +354,75 @@ class LocatorLogic(ScriptedLoadableModuleLogic):
       self.scene.AddNode(locatorDisp)
       locatorDisp.SetScene(self.scene)
       locatorModel.SetAndObserveDisplayNodeID(locatorDisp.GetID());
-      
-    color = [0, 0, 0]
-    color[0] = 0.5
+
+color = [0, 0, 0]
+  color[0] = 0.5
     color[1] = 0.5
     color[2] = 1.0
     locatorDisp.SetColor(color)
-    
-    return locatorModel.GetID()
+    print name
+    if self.colorMap.get(name):
+      locatorDisp.SetColor(self.colorMap.get(name))
+      color = self.colorMap.get(name)
+      colorName = "background:rgb({},{},{})".format(255*color[0], 255*color[1], 255*color[2])
+      print colorName
+      self.widget.colorSelectors[index].setStyleSheet(colorName)
+  #qss = qt.QString("background-color: %1").arg(col.name());
 
 
-  def onNodeRemovedEvent(self, caller, event, obj=None):
-    delkey = ''
+  return locatorModel.GetID()
+
+def modifyColorScheme(self,sender):
+  index = 0
+    for index, colorSelector in enumerate(self.widget.colorSelectors):
+      if sender == colorSelector:
+        break
+  self.SelectedRowNum = index
+    self.widget.colorDialog.open()
+    pass
+
+def colorSchemeChanged(self):
+  if not self.SelectedRowNum==None:
+    a = 0
+      #fom widget get the current selected combox, from the combox get the transformation node in this combox.
+      colortemp = self.widget.colorDialog.selectedColor()
+      red = colortemp.red()
+      green = colortemp.green()
+      blue = colortemp.blue()
+      colorName = "background:rgb({},{},{})".format(red, green, blue)
+      self.widget.colorSelectors[self.SelectedRowNum].setStyleSheet(colorName)
+      selectedColor = [red/255.0,green/255.0,blue/255.0]
+      tnode = self.widget.transformSelector[self.SelectedRowNum].currentNode()
+      tModelNode = self.scene.GetNodesByName("Needle_%s" % tnode.GetName()).GetItemAsObject(0)
+      locatorDisp = tModelNode.GetDisplayNode()
+      locatorDisp.SetColor(selectedColor)
+      if tnode and self.colorMap.get(tnode.GetName()):
+        self.colorMap[tnode.GetName()] = selectedColor  # conversion between QT color and slicer color needed
+  pass
+
+def reselectLocator(self, sender):
+  index = 0
+    for index, transform in enumerate(self.widget.transformSelector):
+      if sender == transform.currentNodeID:
+        tnode = transform.currentNode()
+        selectedColor = [0,0,0]
+        if tnode and self.colorMap.get(tnode.GetName()):
+          selectedColor = self.colorMap[tnode.GetName()]
+          colorName = "background:rgb({},{},{})".format(selectedColor[0]*255, selectedColor[1]*255, selectedColor[2]*255)
+          self.widget.colorSelectors[index].setStyleSheet(colorName)
+  pass
+
+
+def onNodeRemovedEvent(self, caller, event, obj=None):
+  delkey = ''
     if obj == None:
       for k in self.eventTag:
         node = self.scene.GetNodeByID(k)
         if node == None:
           delkey = k
           break
-
-    if delkey != '':
-      del self.eventTag[delkey]
+  
+  if delkey != '':
+    del self.eventTag[delkey]
 
 
